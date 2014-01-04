@@ -6,23 +6,32 @@ import (
 	"github.com/bclymer/cgminer-monitor-server/models"
 	"github.com/bclymer/cgminer-monitor-server/services"
 	"github.com/codegangsta/martini"
+	"github.com/codegangsta/martini-contrib/gzip"
 	"github.com/codegangsta/martini-contrib/render"
 	"io"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
 )
 
+const (
+	tempFolder = "./temp/"
+)
+
 var (
 	// Mapping device names to that machines stats
-	devStats = make(map[string][]models.DeviceStats)
+	logger = configureLogger()
+	config models.Config
 )
 
 func main() {
-	os.Mkdir("./stats", 7777)
+	os.Mkdir(tempFolder, 7777)
+	loadConfig()
 
 	martiniServer := martini.Classic()
-	logger := configureLogger()
+	martiniServer.Use(gzip.All())
+
 	martiniServer.Map(logger)
 
 	controllers.SetupApi(martiniServer)
@@ -32,6 +41,9 @@ func main() {
 	})
 
 	martiniServer.Post("/stats", func(w http.ResponseWriter, r *http.Request) (int, string) {
+		if r.Header.Get("Server-Password") != config.ServerPassword {
+			w.WriteHeader(http.StatusUnauthorized)
+		}
 		reader, err := r.MultipartReader()
 		if err != nil {
 			logger.Println("Error:", err)
@@ -47,7 +59,7 @@ func main() {
 			if part.FileName() == "" {
 				continue
 			}
-			dst, err := os.Create("./stats/" + part.FileName())
+			dst, err := os.Create(tempFolder + part.FileName())
 			defer dst.Close()
 
 			if err != nil {
@@ -60,7 +72,7 @@ func main() {
 				return http.StatusInternalServerError, failure(err)
 			}
 			logger.Println("Accepted", part.FileName())
-			go services.AddFile("./stats/" + part.FileName())
+			go services.ProcessFile(tempFolder + part.FileName())
 		}
 		return 201, success()
 	})
@@ -69,7 +81,7 @@ func main() {
 		Layout: "_layout",
 	}))
 	martiniServer.Use(martini.Recovery())
-	martiniServer.Run()
+	http.ListenAndServe(":"+config.ServerPort, martiniServer)
 }
 
 func configureLogger() *log.Logger {
@@ -94,7 +106,6 @@ type Result struct {
 }
 
 func success() string {
-
 	str, _ := json.Marshal(Result{Success: true})
 	return string(str)
 }
@@ -102,4 +113,17 @@ func success() string {
 func failure(err error) string {
 	str, _ := json.Marshal(Result{Success: false, Error: err})
 	return string(str)
+}
+
+func loadConfig() {
+	content, err := ioutil.ReadFile("config.json")
+	if err != nil {
+		panic(err)
+	}
+	err = json.Unmarshal(content, &config)
+	if err != nil {
+		panic(err)
+	}
+	logger.Println("Server is on port: " + config.ServerPort)
+	logger.Println("Server password is: " + config.ServerPassword)
 }

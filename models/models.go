@@ -72,3 +72,8 @@ type DeviceStats struct {
 	DeviceRejectedPct []float64 `json:"deviceRejectedPct"`
 	DeviceElapsed     []uint64  `json:"deviceElapsed"`
 }
+
+type Config struct {
+	ServerPort     string `json:"serverPort"`
+	ServerPassword string `json:"serverPassword"`
+}

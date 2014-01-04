@@ -14,8 +14,14 @@ const (
 )
 
 var (
-	logger = configureLogger()
+	logger        = configureLogger()
+	writerChannel = make(chan (string))
 )
+
+func init() {
+	os.Mkdir(statsFolder, 7777)
+	go addFileToQueue()
+}
 
 func GetToday() string {
 	fileName := statsFolder + time.Now().Format("2006-01-02")
@@ -23,7 +29,22 @@ func GetToday() string {
 	return string(fileContent)
 }
 
-func AddFile(tempFileName string) bool {
+func ProcessFile(fileName string) {
+	writerChannel <- fileName
+}
+
+// Synchronize file writing
+func addFileToQueue() bool {
+	for {
+		select {
+		case fileName := <-writerChannel:
+			addFile(fileName)
+			break
+		}
+	}
+}
+
+func addFile(tempFileName string) bool {
 	tempFileContent, err := ioutil.ReadFile(tempFileName)
 	if err != nil {
 		logger.Println("Failed reading", tempFileName, err)
