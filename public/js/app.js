@@ -22,7 +22,7 @@
 				var chartHolder = $('#' + containerId);
 				_.each(device, function(stats, key) {
 					if (enabled.indexOf(key) == -1) return true;
-					var id = machine+'.'+deviceId+'.'+key;
+					var id = machineName+'.'+deviceId+'.'+key;
 					var canvas = $('<div/>')
 						.width(800).height(400)
 						.prop('width', '800').prop('height', '400')
