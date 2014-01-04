@@ -1,27 +1,41 @@
 package main
 
 import (
-	_ "fmt"
+	"encoding/json"
+	"github.com/bclymer/cgminer-monitor-server/controllers"
+	"github.com/bclymer/cgminer-monitor-server/models"
+	"github.com/bclymer/cgminer-monitor-server/services"
 	"github.com/codegangsta/martini"
+	"github.com/codegangsta/martini-contrib/render"
 	"io"
+	"log"
 	"net/http"
 	"os"
-	"json/encoding"
+)
+
+var (
+	// Mapping device names to that machines stats
+	devStats = make(map[string][]models.DeviceStats)
 )
 
 func main() {
 	os.Mkdir("./stats", 7777)
-	m := martini.Classic()
 
-	m.Get("/", func() string {
-		return "Hello world!"
+	martiniServer := martini.Classic()
+	logger := configureLogger()
+	martiniServer.Map(logger)
+
+	controllers.SetupApi(martiniServer)
+
+	martiniServer.Get("/", func(renderer render.Render) {
+		renderer.HTML(200, "home", nil)
 	})
 
-	m.Post("/stats", func(w http.ResponseWriter, r *http.Request) string {
+	martiniServer.Post("/stats", func(w http.ResponseWriter, r *http.Request) (int, string) {
 		reader, err := r.MultipartReader()
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return failure(err)
+			logger.Println("Error:", err)
+			return http.StatusInternalServerError, failure(err)
 		}
 
 		//copy each part to destination.
@@ -37,29 +51,55 @@ func main() {
 			defer dst.Close()
 
 			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return failure(err)
+				logger.Println("Error:", err)
+				return http.StatusInternalServerError, failure(err)
 			}
 
 			if _, err := io.Copy(dst, part); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return failure(err)
+				logger.Println("Error:", err)
+				return http.StatusInternalServerError, failure(err)
 			}
+			logger.Println("Accepted", part.FileName())
+			go services.AddFile("./stats/" + part.FileName())
 		}
-		return success()
+		return 201, success()
 	})
-	m.Run()
+
+	martiniServer.Use(render.Renderer(render.Options{
+		Layout: "_layout",
+	}))
+	martiniServer.Use(martini.Recovery())
+	martiniServer.Run()
+}
+
+func configureLogger() *log.Logger {
+	// NOTE these file permissions are restricted by umask, so they probably won't work right.
+	err := os.MkdirAll("./log", 0775)
+	if err != nil {
+		panic(err)
+	}
+	logFile, err := os.OpenFile("./log/bc-cgminer-server.log", os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0664)
+	if err != nil {
+		panic(err)
+	}
+
+	logger := log.New(logFile, "", log.Ldate|log.Ltime)
+
+	return logger
 }
 
 type Result struct {
-	Success bool
-	Error error
+	Success bool  `json:"success"`
+	Error   error `json:"error"`
 }
 
-func success() Result {
-	return json.Marshal(Result{success: true})
+func success() string {
+
+	str, _ := json.Marshal(Result{Success: true})
+	return string(str)
 }
 
-func failure(err error) Result {
-	return json.Marshal(Result{success: false,error: err})
+func failure(err error) string {
+	str, _ := json.Marshal(Result{Success: false, Error: err})
+	return string(str)
 }
