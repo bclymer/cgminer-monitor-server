@@ -42,7 +42,7 @@ func main() {
 
 	martiniServer.Post("/stats", func(w http.ResponseWriter, r *http.Request) (int, string) {
 		if r.Header.Get("Server-Password") != config.ServerPassword {
-			w.WriteHeader(http.StatusUnauthorized)
+			return http.StatusUnauthorized, ""
 		}
 		reader, err := r.MultipartReader()
 		if err != nil {
